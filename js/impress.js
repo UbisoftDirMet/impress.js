@@ -291,6 +291,75 @@
             }
         };
 
+
+        var isCircular = function(obj) {
+            try {
+                JSON.stringify(obj);
+                return false;
+            }
+            catch(TypeError) {
+                return true;
+            }
+        }
+
+        var fixStepLocation = function( step, parent ) {
+            // 3 rotations in transform style: rotationX, rotationY and rotationZ in this order
+            // Convert angles to rad
+            var angleX = parent.rotate.x / 180 * Math.PI;
+            var angleY = parent.rotate.y / 180 * Math.PI;
+            var angleZ = parent.rotate.z / 180 * Math.PI;
+            // Rotation on x-axis
+            var step1X = step.translate.x;
+            var step1Y = step.translate.y * Math.cos( angleX ) - step.translate.z * Math.sin( angleX );
+            var step1Z = step.translate.y * Math.sin( angleX ) + step.translate.z * Math.cos( angleX );
+            // Rotation on y-axis
+            var step2X = step1X * Math.cos( angleY ) + step1Z * Math.sin( angleY );
+            var step2Y = step1Y;
+            var step2Z = - step1X * Math.sin( angleY ) + step1Z * Math.cos( angleY );
+            // Rotation on z-axis
+            var step3X = step2X * Math.cos( angleZ ) - step2Y * Math.sin( angleZ );
+            var step3Y = step2X * Math.sin( angleZ ) + step2Y * Math.cos( angleZ );
+            var step3Z = step2Z;
+
+            // Apply a factor so that distance is 'independent' of scales
+            var factor = ( parent.scale * parent.scale + step.scale * step.scale ) / ( parent.scale + step.scale );
+            step.translate.x = step3X * factor + parent.translate.x;
+            step.translate.y = step3Y * factor + parent.translate.y;
+            step.translate.z = step3Z * factor + parent.translate.z;
+            step.rotate.x += parent.rotate.x;
+            step.rotate.y += parent.rotate.y;
+            step.rotate.z += parent.rotate.z;
+        }
+
+        var fixStepChildrenLocations = function( step ) {
+            if( step.children.length === 0 )
+                return;
+            step.children.forEach( function( child ) {
+                fixStepLocation( child, step );
+                fixStepChildrenLocations( child );
+            });
+        }
+                
+        var fixStepsLocations = function() {
+            var roots = [];
+            // Search order
+            for( var stepId in stepsData ) {
+                if( stepsData.hasOwnProperty( stepId ) ) {
+                    var step = stepsData[ stepId ];
+                    if( step.parentId )
+                        stepsData[ "impress-" + step.parentId ].children.push( step );
+                    else
+                        roots.push( step );
+                }
+            }
+
+            if( isCircular( stepsData ) )
+                alert( "Circular references. check your data-relative attributes" );
+
+            roots.forEach( fixStepChildrenLocations );
+        }
+
+
         // `initStep` initializes given step element by reading data from its
         // data attributes and setting correct styles.
         var initStep = function( el, idx ) {
@@ -307,7 +376,9 @@
                         z: toNumber( data.rotateZ || data.rotate )
                     },
                     scale: toNumber( data.scale, 1 ),
-                    el: el
+                    el: el,
+                    parentId: data.relative,
+                    children: []
                 };
 
             if ( !el.id ) {
@@ -315,7 +386,10 @@
             }
 
             stepsData[ "impress-" + el.id ] = step;
+        }
 
+        var initStepCss = function( el ) {
+            var step = stepsData[ "impress-" + el.id ];
             css( el, {
                 position: "absolute",
                 transform: "translate(-50%,-50%)" +
@@ -390,6 +464,8 @@
             // Get and init steps
             steps = $$( ".step", root );
             steps.forEach( initStep );
+            fixStepsLocations();
+            steps.forEach( initStepCss );
 
             // Set a default initial state of the canvas
             currentState = {
@@ -732,7 +808,7 @@
                 return;
             }
 
-            if ( event.keyCode === 9 ||
+            if ( //LD: event.keyCode === 9 ||
                ( event.keyCode >= 32 && event.keyCode <= 34 ) ||
                ( event.keyCode >= 37 && event.keyCode <= 40 ) ) {
                 switch ( event.keyCode ) {
